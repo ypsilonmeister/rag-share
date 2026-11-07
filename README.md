@@ -127,6 +127,26 @@ downloaded; anything else (and files over 5 MB) is skipped.
 Note: `/authorize` intentionally shows a minimal consent page — the
 passphrase is the consent.
 
+## Companion prompts — making AIs actually use it
+
+The server alone does not make an AI participate. Two prompts in
+[`docs/`](docs/) complete the system:
+
+1. **Writing guide** ([`docs/MEMORY_WRITING_GUIDE.md`](docs/MEMORY_WRITING_GUIDE.md),
+   [日本語](docs/MEMORY_WRITING_GUIDE.ja.md)): the rules each AI follows
+   when saving a memory — file naming, front matter, facts vs.
+   interpretation, what never to write. Put a copy **inside the shared
+   folder itself**, so it is searchable and always the current version,
+   and also give it to each AI (custom instructions, or at the start
+   of a conversation).
+2. **Bootstrap prompt** ([`docs/BOOTSTRAP_PROMPT.md`](docs/BOOTSTRAP_PROMPT.md),
+   [日本語](docs/BOOTSTRAP_PROMPT.ja.md)): paste **once** to a new AI.
+   It makes the AI fetch the writing guide via `memory_search` and
+   retain the key points in whatever long-term memory mechanism it
+   has.
+
+Adapt the folder name in the templates to your own.
+
 ## Exposing the server
 
 The server itself is plain HTTP. Put a TLS tunnel or reverse proxy in
@@ -191,6 +211,7 @@ Runtime files (all mode 0600 where they hold secrets, all git-ignored):
 ```
 server.py            the MCP server (search + auth + OAuth)
 pull.py              Drive → corpus sync (service account)
+docs/                companion prompts: writing guide + bootstrap (EN/JA)
 Dockerfile           container image (state in a /data volume)
 docker-compose.yml   server + one-shot pull
 systemd/             example user units (server, pull oneshot, pull timer)
