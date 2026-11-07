@@ -106,8 +106,11 @@ base URL) with `Authorization: Bearer <token>`.
 venv/bin/python pull.py     # prints "PULL DONE files=N ..."
 ```
 
-`pull.py` refuses to proceed when the folder listing comes back empty,
-so an unshared folder can never wipe a populated corpus. Run it on a
+When a listing is empty, `pull.py` verifies that the folder itself is accessible
+and not trashed before clearing the corpus. An inaccessible folder preserves
+existing memories; an accessible empty folder removes the last deleted memory.
+Retryable download failures retain the last good version for the next pull.
+Run it on a
 timer (see `systemd/`) or from cron. If a Google Doc/Sheet/Slide is in
 the folder it is exported as text/CSV; plain-text-like files are
 downloaded; anything else (and files over 5 MB) is skipped.

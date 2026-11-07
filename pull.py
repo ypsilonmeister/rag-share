@@ -112,6 +112,18 @@ def collect(token: str, folder_id: str, out: list) -> None:
             out.append(f)
 
 
+def verify_folder_access(token: str, folder_id: str) -> None:
+    """Confirm an empty listing belongs to an accessible, live folder."""
+    r = api_get(token, f"{API}/files/{folder_id}",
+                params={"fields": "id,mimeType,trashed"})
+    if r.status_code != 200:
+        raise RuntimeError(f"folder verification failed: {r.status_code}")
+    folder = r.json()
+    if (folder.get("id") != folder_id or folder.get("mimeType") != FOLDER_MIME
+            or folder.get("trashed") is not False):
+        raise RuntimeError("target is not a live, accessible folder")
+
+
 def extract(token: str, f: dict) -> tuple:
     fid, mime = f["id"], f["mimeType"]
     if mime in EXPORT_MAP:
@@ -167,12 +179,9 @@ def main() -> int:
     files: list = []
     collect(token, FOLDER_ID, files)
     if not files:
-        # An empty listing almost always means the folder is not shared
-        # with the service account. Never overwrite a populated corpus
-        # with an empty one.
-        raise RuntimeError(
-            "no files visible in the shared folder; aborting to protect "
-            "the corpus (is the folder shared with the service account?)")
+        # Listing an inaccessible folder can look empty. Verify the folder
+        # itself before accepting an intentional deletion of the last file.
+        verify_folder_access(token, FOLDER_ID)
     manifest = {}
     added = updated = skipped = failed = 0
     seen = set()
