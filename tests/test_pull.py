@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import requests
 import pull
@@ -35,12 +35,16 @@ class PullTests(unittest.TestCase):
     def manifest(self):
         return json.loads((self.corpus / "manifest.json").read_text())
 
-    def run_pull(self, files=None, result=("ok", b"new text"), error=None):
+    def run_pull(self, files=None, result=("ok", b"new text"), error=None,
+                 folder_status=200, folder_mime=pull.FOLDER_MIME, trashed=False):
         def collect(token, folder, out):
             out.extend([self.current] if files is None else files)
 
         with patch.object(pull, "get_access_token", return_value="test"), \
              patch.object(pull, "collect", side_effect=collect), \
+             patch.object(pull, "api_get", return_value=Mock(
+                 status_code=folder_status, json=lambda: {
+                     "id": "folder", "mimeType": folder_mime, "trashed": trashed})), \
              patch.object(pull, "extract", return_value=result, side_effect=error):
             return pull.main()
 
@@ -73,3 +77,19 @@ class PullTests(unittest.TestCase):
         self.assertEqual(self.run_pull(files=[dict(self.current, id="new")],
                                        result=("error-http-429", None)), 1)
         self.assertNotIn("new", self.manifest())
+
+    def test_verified_empty_folder_removes_last_memory(self):
+        self.assertEqual(self.run_pull(files=[]), 0)
+        self.assertEqual(self.manifest(), {})
+        self.assertEqual(json.loads(Path(pull.STATE_PATH).read_text()), {})
+        self.assertFalse((self.corpus / "note.txt").exists())
+
+    def test_unverified_empty_folder_preserves_corpus(self):
+        for changes in ({"folder_status": 403}, {"folder_status": 404},
+                        {"folder_status": 503}, {"folder_mime": "text/plain"},
+                        {"trashed": True}):
+            with self.subTest(changes=changes):
+                with self.assertRaises(RuntimeError):
+                    self.run_pull(files=[], **changes)
+                self.assertEqual(self.manifest(), {"note": self.old})
+                self.assertEqual((self.corpus / "note.txt").read_text(), "old text")
