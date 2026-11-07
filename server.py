@@ -781,6 +781,7 @@ class Index:
             return
         with self.lock:
             changed = False
+            complete = True
             for fid in list(self.files):
                 if fid not in manifest:
                     del self.files[fid]
@@ -794,6 +795,7 @@ class Index:
                     with open(path, encoding="utf-8", errors="replace") as fh:
                         text = fh.read()
                 except OSError:
+                    complete = False
                     continue
                 chunks = chunk_text(text)
                 embs = (self._embed(chunks) if chunks
@@ -806,7 +808,10 @@ class Index:
                 log(f"indexed {meta.get('name')} ({len(chunks)} chunks)")
             if changed:
                 self._rebuild()
-            self.manifest_mtime = mtime
+            # Leave this manifest pending until all referenced texts were read.
+            # Existing entries remain usable while a missing update is retried.
+            if complete:
+                self.manifest_mtime = mtime
 
     def _rebuild(self):
         chunks, docs, mats = [], [], []

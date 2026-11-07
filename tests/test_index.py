@@ -95,3 +95,21 @@ class IndexTests(unittest.TestCase):
     def test_legacy_and_invalid_front_matter(self):
         for text in ("legacy text", "---\nid: [\n---\ntext", "---\n- list\n---\ntext"):
             self.assertEqual(server.memory_metadata(text), {})
+
+    def test_missing_file_is_retried_without_manifest_change(self):
+        self.write({"note": {"text_file": "note.txt", "modifiedTime": "1"}})
+        self.index.maybe_reload()
+        self.assertNotIn("note", self.index.files)
+        mtime = (self.root / "manifest.json").stat().st_mtime_ns
+        (self.root / "note.txt").write_text("recovered")
+        self.assertEqual(self.index.read("note")["text"], "recovered")
+        self.assertEqual((self.root / "manifest.json").stat().st_mtime_ns, mtime)
+
+    def test_unreadable_update_keeps_old_text_then_recovers(self):
+        self.write({"note": {"text_file": "note.txt", "modifiedTime": "1"}},
+                   {"note.txt": "old"})
+        self.assertEqual(self.index.read("note")["text"], "old")
+        self.write({"note": {"text_file": "new.txt", "modifiedTime": "2"}})
+        self.assertEqual(self.index.read("note")["text"], "old")
+        (self.root / "new.txt").write_text("updated")
+        self.assertEqual(self.index.read("note")["text"], "updated")
