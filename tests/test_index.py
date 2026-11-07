@@ -68,3 +68,30 @@ class IndexTests(unittest.TestCase):
         self.write({})
         with self.assertRaises(ValueError):
             self.index.read("note")
+
+    def test_correction_is_attached_outside_top_k_and_history_is_retained(self):
+        old = '---\nid: original\ndate: 2025-01-01\nstatus: active\n---\n旧決定の固有語'
+        new = ('---\nid: correction\ndate: 2026-01-01\nstatus: active\n'
+               'supersedes: ["original"]\n---\n新しい方針')
+        self.write({fid: {"text_file": fid + ".txt", "name": fid}
+                    for fid in ("old", "new")}, {"old.txt": old, "new.txt": new})
+        hit = self.index.search("旧決定の固有語", 1)[0]
+        self.assertEqual(hit["fileId"], "old")
+        self.assertEqual(hit["superseded_by"][0]["fileId"], "new")
+        self.assertEqual(hit["superseded_by"][0]["record"]["date"], "2026-01-01")
+        self.assertEqual(self.index.read("old")["text"], old)
+        self.assertEqual(self.index.read("new")["text"], new)
+        self.assertEqual(self.index.read("old")["superseded_by"], hit["superseded_by"])
+
+    def test_correction_cycles_and_duplicate_ids_are_safe(self):
+        files = {
+            "a": {"meta": {}, "record": {"id": "A", "supersedes": ["B"]}},
+            "b": {"meta": {}, "record": {"id": "B", "supersedes": ["A"]}},
+        }
+        self.assertEqual(len(server.record_context("a", files)["superseded_by"]), 1)
+        files["duplicate"] = {"meta": {}, "record": {"id": "A"}}
+        self.assertEqual(server.record_context("a", files)["superseded_by"], [])
+
+    def test_legacy_and_invalid_front_matter(self):
+        for text in ("legacy text", "---\nid: [\n---\ntext", "---\n- list\n---\ntext"):
+            self.assertEqual(server.memory_metadata(text), {})

@@ -5,3 +5,4 @@ fastembed>=0.9.1
 numpy
 requests
 cryptography
+PyYAML>=6.0
