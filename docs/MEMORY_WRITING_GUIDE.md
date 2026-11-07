@@ -1,5 +1,10 @@
 # Writing guide for the shared memory
 
+Policy version: **1.1** / Updated: **2026-11-07**
+
+When rules change, update the version/date and synchronize the canonical Drive
+copy and translations.
+
 A prompt to give to each AI (ChatGPT, Gemini, Claude, …).
 Have it read this at the start of a conversation, or paste it into its
 custom instructions. Replace the folder name with your own shared

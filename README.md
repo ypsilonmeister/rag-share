@@ -156,10 +156,11 @@ The server alone does not make an AI participate. Two prompts in
    and also give it to each AI (custom instructions, or at the start
    of a conversation).
 2. **Bootstrap prompt** ([`docs/BOOTSTRAP_PROMPT.md`](docs/BOOTSTRAP_PROMPT.md),
-   [日本語](docs/BOOTSTRAP_PROMPT.ja.md)): paste **once** to a new AI.
-   It makes the AI fetch the writing guide via `memory_search` and
-   retain the key points in whatever long-term memory mechanism it
-   has.
+   [日本語](docs/BOOTSTRAP_PROMPT.ja.md)): use for initial setup of a new AI.
+   The AI reads the complete guide and reports whether retention is conversation-only,
+   verified persistent settings, or awaiting user setup. Without persistence it
+   must be provided again. Before writing in a new conversation, recheck the
+   canonical policy version.
 
 Adapt the folder name in the templates to your own.
 
@@ -242,6 +243,21 @@ docker-compose.yml   server + one-shot pull
 systemd/             example user units (server, pull oneshot, pull timer)
 rag-share.env.example
 ```
+
+## Development and CI
+
+Install `requirements.txt`, then run:
+
+```sh
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs on pushes and pull requests: Linux with Python 3.11–3.14,
+and Windows with Python 3.14. It checks dependency consistency, syntax, the
+regression suite, and actual MCP SDK tool registration/dispatch and app creation.
+Tests use temporary data and deterministic embedding fixtures; no Drive keys,
+live account access, or embedding model download is needed. Model quality and
+public tunnel integration are outside this suite.
 
 ## License
 
