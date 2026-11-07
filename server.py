@@ -468,7 +468,8 @@ class OAuthApp:
                 "承認用の合言葉がサーバーに設定されていないため、"
                 "現在は承認できません。"), "text/html; charset=utf-8")
             return
-        if not hmac.compare_digest(provided, expected):
+        if not hmac.compare_digest(provided.encode("utf-8"),
+                                   expected.encode("utf-8")):
             access_log(str(label), "authorize", "denied", 0)
             page = _authorize_form(client.get("client_name", ""), params,
                                    error="合言葉が違います。")
