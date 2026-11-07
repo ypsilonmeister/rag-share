@@ -113,3 +113,29 @@ class IndexTests(unittest.TestCase):
         self.assertEqual(self.index.read("note")["text"], "old")
         (self.root / "new.txt").write_text("updated")
         self.assertEqual(self.index.read("note")["text"], "updated")
+
+    def test_metadata_updates_without_reembedding(self):
+        meta = {"text_file": "note.txt", "modifiedTime": "1", "name": "old",
+                "webViewLink": "old-link", "stale": True}
+        self.write({"note": meta}, {"note.txt": "unchanged"})
+        self.index.maybe_reload()
+        self.embedding.reset_mock()
+        new_meta = dict(meta, name="新しい名前", webViewLink="new-link", stale=False)
+        self.write({"note": new_meta})
+        page = self.index.read("note")
+        self.embedding.assert_not_called()
+        self.assertEqual(page["title"], "新しい名前")
+        self.assertEqual(page["webViewLink"], "new-link")
+        self.assertFalse(page["stale"])
+        self.assertIn("新しい名前", self.index.docs[0])
+        hit = self.index.search("新しい名前", 1)[0]
+        self.assertEqual(hit["title"], "新しい名前")
+        self.assertEqual(hit["webViewLink"], "new-link")
+
+    def test_changed_text_path_is_loaded_even_with_same_version(self):
+        self.write({"note": {"text_file": "note.txt", "modifiedTime": "1"}},
+                   {"note.txt": "old"})
+        self.index.maybe_reload()
+        self.write({"note": {"text_file": "new.txt", "modifiedTime": "1"}},
+                   {"new.txt": "new"})
+        self.assertEqual(self.index.read("note")["text"], "new")

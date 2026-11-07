@@ -788,7 +788,11 @@ class Index:
                     changed = True
             for fid, meta in manifest.items():
                 cur = self.files.get(fid)
-                if cur and cur["modifiedTime"] == meta.get("modifiedTime"):
+                if (cur and cur["modifiedTime"] == meta.get("modifiedTime")
+                        and cur["meta"].get("text_file") == meta.get("text_file")):
+                    if cur["meta"] != meta:
+                        self.files[fid] = dict(cur, meta=dict(meta))
+                        changed = True
                     continue
                 path = os.path.join(CORPUS_DIR, meta.get("text_file", ""))
                 try:
