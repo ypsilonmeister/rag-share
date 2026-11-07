@@ -244,6 +244,21 @@ systemd/             example user units (server, pull oneshot, pull timer)
 rag-share.env.example
 ```
 
+## Development and CI
+
+Install `requirements.txt`, then run:
+
+```sh
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs on pushes and pull requests: Linux with Python 3.11–3.14,
+and Windows with Python 3.14. It checks dependency consistency, syntax, the
+regression suite, and actual MCP SDK tool registration/dispatch and app creation.
+Tests use temporary data and deterministic embedding fixtures; no Drive keys,
+live account access, or embedding model download is needed. Model quality and
+public tunnel integration are outside this suite.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
