@@ -165,6 +165,10 @@ Adapt the folder name in the templates to your own.
 
 ## Exposing the server
 
+Public OAuth requests have bounded bodies, registration counts, and shared
+per-route request budgets. See [OAuth operation](docs/OAUTH_OPERATIONS.md) for
+limits, proxy trust, and removing unused registrations.
+
 OAuth state is written to a private temporary file, flushed, then atomically
 replaced. Invalid existing JSON is an error rather than an empty store; restore
 the last known-good backup before retrying. Keep backups of the OAuth state
