@@ -155,6 +155,11 @@ def main() -> int:
     token = get_access_token(key)
 
     os.makedirs(CORPUS, exist_ok=True)
+    manifest_path = os.path.join(CORPUS, "manifest.json")
+    previous_manifest = {}
+    if os.path.exists(manifest_path):
+        with open(manifest_path, encoding="utf-8") as fh:
+            previous_manifest = json.load(fh)
     state = {}
     if os.path.exists(STATE_PATH):
         with open(STATE_PATH) as fh:
@@ -169,7 +174,7 @@ def main() -> int:
             "no files visible in the shared folder; aborting to protect "
             "the corpus (is the folder shared with the service account?)")
     manifest = {}
-    added = updated = skipped = 0
+    added = updated = skipped = failed = 0
     seen = set()
     for f in files:
         fid = f["id"]
@@ -184,10 +189,22 @@ def main() -> int:
                    or not os.path.exists(dest)
                    or os.path.getsize(dest) == 0)
         if changed:
-            res, raw = extract(token, f)
+            try:
+                res, raw = extract(token, f)
+            except requests.RequestException:
+                res, raw = "error-request", None
             if res != "ok":
                 skipped += 1
                 print(f"{res}: {f['name']}")
+                retryable = (res == "error-request" or res in
+                             {"error-http-408", "error-http-429"}
+                             or res.startswith("error-http-5"))
+                if retryable:
+                    failed += 1
+                    old = previous_manifest.get(fid)
+                    if old and os.path.exists(dest) and os.path.getsize(dest):
+                        manifest[fid] = dict(old, stale=True, sync_error=res)
+                        print(f"stale-retained: {f['name']}")
                 continue
             write_atomic(dest, raw)
             if fid in state:
@@ -208,12 +225,13 @@ def main() -> int:
                 os.remove(p)
             del state[fid]
             print(f"removed: {fid}")
-    write_atomic(os.path.join(CORPUS, "manifest.json"),
+    write_atomic(manifest_path,
                  json.dumps(manifest, ensure_ascii=False, indent=1).encode())
     write_atomic(STATE_PATH,
                  json.dumps(state, ensure_ascii=False, indent=1).encode())
-    print(f"PULL DONE files={len(manifest)} added={added} updated={updated} skipped={skipped}")
-    return 0
+    print(f"PULL DONE files={len(manifest)} added={added} updated={updated} "
+          f"skipped={skipped} failed={failed}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
