@@ -1,0 +1,11 @@
+[Unit]
+Description=Pull the shared-memory corpus every 30 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+Persistent=true
+Unit=rag-share-pull.service
+
+[Install]
+WantedBy=timers.target

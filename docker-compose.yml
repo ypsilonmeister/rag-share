@@ -1,0 +1,35 @@
+services:
+  server:
+    build: .
+    image: rag-share
+    restart: unless-stopped
+    env_file: rag-share.env
+    environment:
+      # Inside the container the server must listen on all interfaces;
+      # the host-side exposure is controlled by the port mapping below
+      # and by whatever tunnel/proxy you put in front of it.
+      RAG_SHARE_BIND_HOSTS: "0.0.0.0"
+    ports:
+      # Loopback on the host only. Expose it through Tailscale Funnel
+      # or a TLS reverse proxy, not by publishing it directly.
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - rag-share-data:/data
+
+  # One-shot Drive -> corpus pull:
+  #   docker compose run --rm pull
+  # Run it from cron or a systemd timer every ~30 minutes.
+  pull:
+    image: rag-share
+    profiles: ["tools"]
+    env_file: rag-share.env
+    environment:
+      RAG_SHARE_DIR: "/data"
+    volumes:
+      - rag-share-data:/data
+      # The service-account key stays on the host, mounted read-only.
+      - ./sa-key.json:/data/sa-key.json:ro
+    command: ["python", "pull.py"]
+
+volumes:
+  rag-share-data:

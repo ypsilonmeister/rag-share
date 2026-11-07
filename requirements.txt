@@ -1,0 +1,7 @@
+# Developed and tested against mcp 2.3.0 and fastembed 0.9.1.
+mcp>=2.3.0
+uvicorn
+fastembed>=0.9.1
+numpy
+requests
+cryptography

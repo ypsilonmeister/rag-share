@@ -1,0 +1,14 @@
+.git
+__pycache__
+venv
+corpus
+model-cache
+rag-share.env
+sa-key.json
+tokens.json
+INITIAL_TOKEN.txt
+oauth-clients.json
+oauth-tokens.json
+consent-passphrase.txt
+access.log
+pull-state.json

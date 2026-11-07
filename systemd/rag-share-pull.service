@@ -1,0 +1,12 @@
+[Unit]
+Description=rag-share - pull the shared-memory corpus from Google Drive
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adjust the installation path to your checkout.
+WorkingDirectory=/path/to/rag-share
+EnvironmentFile=/path/to/rag-share/rag-share.env
+ExecStart=/path/to/rag-share/venv/bin/python pull.py
+Environment=PYTHONUNBUFFERED=1

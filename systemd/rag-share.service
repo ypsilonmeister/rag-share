@@ -1,0 +1,17 @@
+[Unit]
+Description=rag-share - read-only MCP search server over a shared-memory corpus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust the installation path to your checkout.
+WorkingDirectory=/path/to/rag-share
+EnvironmentFile=/path/to/rag-share/rag-share.env
+ExecStart=/path/to/rag-share/venv/bin/python server.py
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
