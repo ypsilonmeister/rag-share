@@ -52,6 +52,7 @@ import os
 import re
 import secrets
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -119,10 +120,19 @@ def _sha256_hex(text):
 
 
 def _write_secret_file(path, content):
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write(content)
-    os.chmod(path, 0o600)
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, temporary = tempfile.mkstemp(prefix="." + os.path.basename(path) + ".",
+                                     suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(content)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def ensure_tokens():
@@ -168,8 +178,10 @@ def _load_json_file(path, default):
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-        return data if isinstance(data, type(default)) else default
-    except (OSError, ValueError):
+        if not isinstance(data, type(default)):
+            raise ValueError(f"invalid JSON state type: {os.path.basename(path)}")
+        return data
+    except FileNotFoundError:
         return default
 
 
@@ -182,9 +194,12 @@ def verify_oauth_token(auth_header):
     if not auth_header or not auth_header.startswith("Bearer "):
         return None
     digest = _sha256_hex(auth_header[len("Bearer "):].strip())
-    with _store_lock:
-        tokens = _load_json_file(OAUTH_TOKENS_PATH, {})
-        rec = tokens.get(digest)
+    try:
+        with _store_lock:
+            tokens = _load_json_file(OAUTH_TOKENS_PATH, {})
+            rec = tokens.get(digest)
+    except (OSError, ValueError):
+        return None
     if not isinstance(rec, dict):
         return None
     if float(rec.get("expires_at", 0)) <= time.time():

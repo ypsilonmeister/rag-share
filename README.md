@@ -160,6 +160,11 @@ Adapt the folder name in the templates to your own.
 
 ## Exposing the server
 
+OAuth state is written to a private temporary file, flushed, then atomically
+replaced. Invalid existing JSON is an error rather than an empty store; restore
+the last known-good backup before retrying. Keep backups of the OAuth state
+private as well. Missing state files can still be initialized normally.
+
 The server itself is plain HTTP. Put a TLS tunnel or reverse proxy in
 front of it, for example:
 
