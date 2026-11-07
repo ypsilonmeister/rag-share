@@ -91,6 +91,13 @@ COS_WEIGHT = 0.4
 LOG_QUERIES = os.environ.get("RAG_SHARE_LOG_QUERIES", "0") == "1"
 LOG_MAX_BYTES = max(1024, int(os.environ.get("RAG_SHARE_LOG_MAX_BYTES", "1048576")))
 LOG_BACKUPS = max(1, min(10, int(os.environ.get("RAG_SHARE_LOG_BACKUPS", "3"))))
+OAUTH_BODY_LIMIT = max(1024, int(os.environ.get("RAG_SHARE_OAUTH_BODY_LIMIT", "16384")))
+OAUTH_MAX_CLIENTS = max(1, int(os.environ.get("RAG_SHARE_OAUTH_MAX_CLIENTS", "100")))
+OAUTH_RATE_LIMITS = {
+    "/register": max(1, int(os.environ.get("RAG_SHARE_REGISTER_PER_MINUTE", "10"))),
+    "/authorize": max(1, int(os.environ.get("RAG_SHARE_AUTHORIZE_PER_MINUTE", "10"))),
+    "/token": max(1, int(os.environ.get("RAG_SHARE_TOKEN_PER_MINUTE", "60"))),
+}
 
 
 def log(msg):
@@ -273,12 +280,19 @@ def _consent_passphrase():
     return value or None
 
 
+class RequestTooLarge(ValueError):
+    pass
+
+
 async def _read_body(receive):
     body = b""
     while True:
-        message = await receive()
+        message = await asyncio.wait_for(receive(), timeout=15)
         if message["type"] == "http.request":
-            body += message.get("body", b"")
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > OAUTH_BODY_LIMIT:
+                raise RequestTooLarge("OAuth request body is too large")
+            body += chunk
             if not message.get("more_body"):
                 break
         elif message["type"] == "http.disconnect":
@@ -373,6 +387,8 @@ class OAuthApp:
     """Unauthenticated OAuth/discovery endpoints (pure ASGI)."""
 
     def __init__(self):
+        self._rate_lock = threading.Lock()
+        self._rate_windows = {}
         self.routes = {
             ("GET", "/.well-known/oauth-protected-resource"):
                 self.protected_resource,
@@ -390,8 +406,28 @@ class OAuthApp:
         return (method, path) in self.routes
 
     async def __call__(self, scope, receive, send):
+        path = scope["path"]
+        if scope["method"] == "POST" and path in OAUTH_RATE_LIMITS:
+            now = time.monotonic()
+            with self._rate_lock:
+                start, count = self._rate_windows.get(path, (now, 0))
+                if now - start >= 60:
+                    start, count = now, 0
+                limited = count >= OAUTH_RATE_LIMITS[path]
+                if not limited:
+                    count += 1
+                self._rate_windows[path] = (start, count)
+            if limited:
+                await _send_json(send, 429, {"error": "rate_limit_exceeded"},
+                                 [(b"retry-after", str(max(1, math.ceil(60 - (now - start)))).encode())])
+                return
         handler = self.routes[(scope["method"], scope["path"])]
-        await handler(scope, receive, send)
+        try:
+            await handler(scope, receive, send)
+        except RequestTooLarge:
+            await _oauth_error(send, 413, "request_too_large")
+        except TimeoutError:
+            await _oauth_error(send, 408, "request_timeout")
 
     async def protected_resource(self, scope, receive, send):
         await _send_json(send, 200, PROTECTED_RESOURCE_METADATA)
@@ -406,6 +442,10 @@ class OAuthApp:
         except (ValueError, UnicodeDecodeError):
             await _oauth_error(send, 400, "invalid_client_metadata",
                                "request body must be JSON")
+            return
+        if not isinstance(req, dict):
+            await _oauth_error(send, 400, "invalid_client_metadata",
+                               "request body must be a JSON object")
             return
         redirect_uris = req.get("redirect_uris")
         if (not isinstance(redirect_uris, list) or not redirect_uris
@@ -440,8 +480,14 @@ class OAuthApp:
             resp["client_secret"] = secret_value
         with _store_lock:
             clients = _load_json_file(OAUTH_CLIENTS_PATH, {})
-            clients[client_id] = record
-            _save_json_file(OAUTH_CLIENTS_PATH, clients)
+            full = len(clients) >= OAUTH_MAX_CLIENTS
+            if not full:
+                clients[client_id] = record
+                _save_json_file(OAUTH_CLIENTS_PATH, clients)
+        if full:
+            await _oauth_error(send, 429, "registration_limit_reached",
+                               "owner must remove unused client registrations")
+            return
         access_log(client_name, "register", client_name, 0)
         log(f"oauth client registered: {client_name}")
         await _send_json(send, 201, resp)
@@ -1031,7 +1077,7 @@ async def main():
     servers = []
     for host in HOSTS:
         cfg = uvicorn.Config(app, host=host, port=PORT,
-                             log_level="warning", lifespan="off")
+                             log_level="warning", lifespan="off", proxy_headers=False)
         servers.append(uvicorn.Server(cfg))
     log(f"listening on {', '.join(HOSTS)}:{PORT} (read-only)")
     async with mcp.session_manager.run():
