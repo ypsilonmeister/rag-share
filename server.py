@@ -58,6 +58,7 @@ import urllib.parse
 from datetime import datetime
 
 import numpy as np
+import yaml
 
 BASE = os.environ.get("RAG_SHARE_DIR",
                       os.path.dirname(os.path.abspath(__file__)))
@@ -677,6 +678,58 @@ def bigrams(s):
     return [s[i:i + 2] for i in range(len(s) - 1)]
 
 
+def memory_metadata(text):
+    """Read optional record relationships from safe YAML front matter."""
+    match = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)", text, re.S)
+    if not match:
+        return {}
+    try:
+        value = yaml.safe_load(match.group(1))
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(value, dict):
+        return {}
+    record = {}
+    for key in ("id", "date", "status"):
+        if value.get(key) is not None:
+            record[key] = str(value[key])
+    refs = value.get("supersedes", [])
+    if isinstance(refs, list):
+        record["supersedes"] = [ref for ref in refs if isinstance(ref, str) and ref]
+    return record
+
+
+def record_context(file_id, files):
+    """Attach corrections even when their search score is outside top-k."""
+    record = files[file_id].get("record", {})
+    by_id = {}
+    successors = {}
+    for fid, entry in files.items():
+        metadata = entry.get("record", {})
+        if metadata.get("id"):
+            by_id.setdefault(metadata["id"], []).append(fid)
+        for target in metadata.get("supersedes", []):
+            successors.setdefault(target, []).append(fid)
+    related, seen = [], {file_id}
+    pending = [record.get("id")]
+    while pending and len(related) < 20:
+        target = pending.pop(0)
+        # Ambiguous IDs must not silently link to an arbitrary memory.
+        if len(by_id.get(target, [])) != 1:
+            continue
+        for fid in successors.get(target, []):
+            if fid in seen or len(related) >= 20:
+                continue
+            seen.add(fid)
+            entry = files[fid]
+            metadata = entry.get("record", {})
+            related.append({"fileId": fid, "title": entry["meta"].get("name", ""),
+                            "webViewLink": entry["meta"].get("webViewLink", ""),
+                            "record": metadata})
+            pending.append(metadata.get("id"))
+    return {"record": record, "superseded_by": related}
+
+
 def bm25_scores(query, docs):
     n = len(docs)
     dl = np.array([len(d) for d in docs], dtype=np.float64)
@@ -747,7 +800,8 @@ class Index:
                         else np.zeros((0, 768), dtype=np.float32))
                 self.files[fid] = {"modifiedTime": meta.get("modifiedTime"),
                                    "meta": meta, "chunks": chunks,
-                                    "embs": embs, "text": text}
+                                    "embs": embs, "text": text,
+                                    "record": memory_metadata(text)}
                 changed = True
                 log(f"indexed {meta.get('name')} ({len(chunks)} chunks)")
             if changed:
@@ -778,6 +832,7 @@ class Index:
                 raise ValueError("file_id is not in the current index")
             text = entry["text"]
             meta = dict(entry["meta"])
+            context = record_context(file_id, self.files)
         end = min(offset + limit, len(text))
         return {"fileId": file_id, "title": meta.get("name", ""),
                 "modifiedTime": meta.get("modifiedTime", ""),
@@ -785,7 +840,7 @@ class Index:
                 "offset": offset, "total_chars": len(text),
                 "text": text[offset:end],
                 "next_offset": end if end < len(text) else None,
-                "stale": bool(meta.get("stale", False))}
+                "stale": bool(meta.get("stale", False)), **context}
 
     def search(self, query, k):
         self.maybe_reload()
@@ -821,6 +876,7 @@ class Index:
                 "modifiedTime": meta.get("modifiedTime", ""),
                 "webViewLink": meta.get("webViewLink", ""),
                 "snippet": " ".join(text.split())[:200],
+                **record_context(fid, files),
             })
             if len(hits) >= k:
                 break
