@@ -9,6 +9,7 @@ rag-share.env
 
 # runtime data
 access.log
+access.log.*
 pull-state.json
 corpus/
 model-cache/

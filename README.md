@@ -46,8 +46,13 @@ Google Drive folder ── pull.py (service account, every ~30 min)
   are persisted). The authorization endpoint is gated by a consent
   passphrase the owner sets — it fails closed while no passphrase file
   exists.
-- **Access log**: one TSV line per call (time, token label, tool, query
-  truncated to 200 chars, hit count). Secrets are never logged.
+- **Access log**: one TSV line per call (time, token label, tool, detail,
+  hit count). Query text is omitted by default. `RAG_SHARE_LOG_QUERIES=1`
+  enables plaintext query prefixes (200 characters), which may contain private
+  information. Credentials are not logged. Files use POSIX mode 0600; manage
+  directory ACLs on Windows. Rotation defaults to 1 MiB per file plus three
+  backups, controlled by `RAG_SHARE_LOG_MAX_BYTES` and `RAG_SHARE_LOG_BACKUPS`
+  (1..10). Retention is size-based, not a fixed number of days.
 
 ## Requirements
 

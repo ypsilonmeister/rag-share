@@ -36,8 +36,8 @@ access, and arrive here via the pull.
   refresh_token rotation. OAuth adds authentication only; the server
   remains read-only with memory_search and memory_read tools. Token values,
   codes, verifiers, and the passphrase are never logged.
-- access.log: one TSV line per tool call (timestamp, token label, tool,
-  query truncated to 200 chars, hit count); auth failures are logged
+- access.log: private, bounded TSV log (timestamp, token label, tool,
+  detail, hit count); queries omitted unless explicitly enabled, auth failures logged
   with label "none".
 """
 import asyncio
@@ -88,6 +88,9 @@ POLL_SECONDS = 60
 CHUNK_TARGET = 800
 CHUNK_OVERLAP = 100
 COS_WEIGHT = 0.4
+LOG_QUERIES = os.environ.get("RAG_SHARE_LOG_QUERIES", "0") == "1"
+LOG_MAX_BYTES = max(1024, int(os.environ.get("RAG_SHARE_LOG_MAX_BYTES", "1048576")))
+LOG_BACKUPS = max(1, min(10, int(os.environ.get("RAG_SHARE_LOG_BACKUPS", "3"))))
 
 
 def log(msg):
@@ -101,14 +104,29 @@ _log_lock = threading.Lock()
 
 
 def access_log(label, tool, detail, hits):
+    if tool == "memory_search" and not LOG_QUERIES:
+        detail = "[query omitted]"
+    def field(value, limit):
+        return str(value).replace("\t", " ").replace("\n", " ").replace("\r", " ")[:limit]
+
     line = "\t".join([
         datetime.now().astimezone().isoformat(timespec="seconds"),
-        label, tool,
-        str(detail).replace("\t", " ").replace("\n", " ")[:200],
+        field(label, 100), field(tool, 64), field(detail, 200),
         f"hits={hits}",
     ]) + "\n"
     with _log_lock:
-        with open(ACCESS_LOG_PATH, "a", encoding="utf-8") as fh:
+        if os.path.exists(ACCESS_LOG_PATH):
+            os.chmod(ACCESS_LOG_PATH, 0o600)
+            if os.path.getsize(ACCESS_LOG_PATH) + len(line.encode("utf-8")) > LOG_MAX_BYTES:
+                for number in range(LOG_BACKUPS, 1, -1):
+                    old = ACCESS_LOG_PATH + f".{number - 1}"
+                    if os.path.exists(old):
+                        os.chmod(old, 0o600)
+                        os.replace(old, ACCESS_LOG_PATH + f".{number}")
+                os.replace(ACCESS_LOG_PATH, ACCESS_LOG_PATH + ".1")
+        fd = os.open(ACCESS_LOG_PATH, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        os.chmod(ACCESS_LOG_PATH, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
             fh.write(line)
 
 
