@@ -156,10 +156,11 @@ The server alone does not make an AI participate. Two prompts in
    and also give it to each AI (custom instructions, or at the start
    of a conversation).
 2. **Bootstrap prompt** ([`docs/BOOTSTRAP_PROMPT.md`](docs/BOOTSTRAP_PROMPT.md),
-   [日本語](docs/BOOTSTRAP_PROMPT.ja.md)): paste **once** to a new AI.
-   It makes the AI fetch the writing guide via `memory_search` and
-   retain the key points in whatever long-term memory mechanism it
-   has.
+   [日本語](docs/BOOTSTRAP_PROMPT.ja.md)): use for initial setup of a new AI.
+   The AI reads the complete guide and reports whether retention is conversation-only,
+   verified persistent settings, or awaiting user setup. Without persistence it
+   must be provided again. Before writing in a new conversation, recheck the
+   canonical policy version.
 
 Adapt the folder name in the templates to your own.
 
