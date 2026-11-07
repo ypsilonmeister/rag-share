@@ -204,8 +204,8 @@ _auth_codes = {}
 _auth_codes_lock = threading.Lock()
 
 
-def _issue_oauth_tokens(client_id, label):
-    """Create an access+refresh pair; persist only their hashes."""
+def _new_oauth_token_pair(client_id, label):
+    """Build an access+refresh pair and its hash-only storage record."""
     access = secrets.token_urlsafe(48)
     refresh = secrets.token_urlsafe(48)
     now = time.time()
@@ -216,6 +216,12 @@ def _issue_oauth_tokens(client_id, label):
         "expires_at": now + ACCESS_TOKEN_TTL,
         "refresh_hash": _sha256_hex(refresh),
     }
+    return access, refresh, record
+
+
+def _issue_oauth_tokens(client_id, label):
+    """Create an access+refresh pair; persist only their hashes."""
+    access, refresh, record = _new_oauth_token_pair(client_id, label)
     with _store_lock:
         tokens = _load_json_file(OAUTH_TOKENS_PATH, {})
         tokens[_sha256_hex(access)] = record
@@ -572,6 +578,17 @@ class OAuthApp:
                                "refresh_token is required")
             return
         digest = _sha256_hex(presented)
+        client_id = form.get("client_id", "")
+        with _store_lock:
+            clients = _load_json_file(OAUTH_CLIENTS_PATH, {})
+            client = clients.get(client_id)
+        if not isinstance(client, dict) or not self._check_client_secret(client, form):
+            await _oauth_error(send, 401, "invalid_client")
+            return
+
+        error = None
+        # Validate and replace in one critical section. Failed requests never
+        # consume the old pair, and concurrent refreshes cannot reuse it.
         with _store_lock:
             tokens = _load_json_file(OAUTH_TOKENS_PATH, {})
             match = None
@@ -580,21 +597,20 @@ class OAuthApp:
                         str(rec.get("refresh_hash", "")), digest):
                     match = (access_hash, rec)
                     break
-            if match is not None:
+            if match is None:
+                error = "refresh token is invalid"
+            elif match[1].get("client_id") != client_id:
+                error = "client does not match the refresh token"
+            else:
+                label = str(match[1].get("label", "oauth"))
+                access, refresh, record = _new_oauth_token_pair(client_id, label)
                 del tokens[match[0]]
+                tokens[_sha256_hex(access)] = record
                 _save_json_file(OAUTH_TOKENS_PATH, tokens)
-        if match is None:
+        if error is not None:
             await _oauth_error(send, 400, "invalid_grant",
-                               "refresh token is invalid")
+                               error)
             return
-        rec = match[1]
-        if form.get("client_id") not in (None, "", rec.get("client_id")):
-            await _oauth_error(send, 400, "invalid_grant",
-                               "client does not match the refresh token")
-            return
-        label = rec.get("label", "oauth")
-        access, refresh = _issue_oauth_tokens(rec.get("client_id", ""),
-                                              str(label))
         access_log(str(label), "token", "refreshed", 0)
         await _send_json(send, 200, {
             "access_token": access,
