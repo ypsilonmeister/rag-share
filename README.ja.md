@@ -4,11 +4,18 @@
 **読み取り専用MCP検索サーバー**です。
 
 新しいメモリは、各AIが自分のDriveアクセスでフォルダへ直接書きます。このサーバーの
-役割は検索だけで、MCPツールは `memory_search` の1つだけです。認証はBearerトークン、
+役割は検索と本文の読み取りで、MCPツールは `memory_search` と `memory_read` です。認証はBearerトークン、
 または静的トークンを使えないクライアント（ChatGPTのMCPコネクタなど）のために
 内蔵したOAuth 2.0認可サーバーで行います。
 
 English: [README.md](README.md)
+
+`memory_search {query, k}` の結果の `fileId` を使い、
+`memory_read {file_id, offset: 0, limit: 4000}` で索引内の本文を読みます。
+`next_offset` が null になるまで続けると全文を取得できます。
+位置・上限はUnicode文字数で、1回の上限は8,000文字です。
+途中で `modifiedTime` が変わったら最初から読み直してください。
+検索と同じ認証が必要で、索引にないIDやファイルパスは指定できません。
 
 ## 仕組み
 

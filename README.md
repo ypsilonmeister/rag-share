@@ -4,12 +4,20 @@ A **read-only MCP search server** that lets several AI assistants share one
 long-term memory: a Google Drive folder.
 
 Each AI writes new memories into the Drive folder through its own Drive
-access. This server only ever searches. It exposes a single MCP tool,
-`memory_search`, over streamable HTTP, protected by bearer tokens — or by
+access. This server exposes read-only `memory_search` and `memory_read`
+tools over streamable HTTP, protected by bearer tokens — or by
 its own built-in OAuth 2.0 authorization server for clients that cannot use
 static tokens (such as ChatGPT's MCP connector).
 
 > 日本語の説明は [README.ja.md](README.ja.md) にあります。
+
+Use `memory_search {query, k}` to find documents, then
+`memory_read {file_id, offset: 0, limit: 4000}` with a hit's `fileId` to read
+the indexed text. Follow `next_offset` until it is null to read the entire
+document. Offsets and limits count Unicode characters; the maximum page is
+8,000 characters. The response includes `modifiedTime`; restart pagination
+if it changes. Reads use the same authentication as search and accept only
+IDs in the current index, never filesystem paths.
 
 ## How it works
 

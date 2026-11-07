@@ -24,7 +24,9 @@ future conversations.
 
 2. **Fetch the rules**
    Use `memory_search` to search for "writing guide" and "shared
-   memory policy", and understand the writing rules. The canonical
+   memory policy", then pass the hit's `fileId` as `file_id` to `memory_read`.
+   Follow `next_offset` until null and read the complete rules; a search
+   snippet alone does not complete setup. The canonical
    full text is `MEMORY_WRITING_GUIDE.md` in the shared-memory folder
    on Google Drive (prefer it if you can access it directly).
 
