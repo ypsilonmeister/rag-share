@@ -112,6 +112,18 @@ def collect(token: str, folder_id: str, out: list) -> None:
             out.append(f)
 
 
+def verify_folder_access(token: str, folder_id: str) -> None:
+    """Confirm an empty listing belongs to an accessible, live folder."""
+    r = api_get(token, f"{API}/files/{folder_id}",
+                params={"fields": "id,mimeType,trashed"})
+    if r.status_code != 200:
+        raise RuntimeError(f"folder verification failed: {r.status_code}")
+    folder = r.json()
+    if (folder.get("id") != folder_id or folder.get("mimeType") != FOLDER_MIME
+            or folder.get("trashed") is not False):
+        raise RuntimeError("target is not a live, accessible folder")
+
+
 def extract(token: str, f: dict) -> tuple:
     fid, mime = f["id"], f["mimeType"]
     if mime in EXPORT_MAP:
@@ -155,6 +167,11 @@ def main() -> int:
     token = get_access_token(key)
 
     os.makedirs(CORPUS, exist_ok=True)
+    manifest_path = os.path.join(CORPUS, "manifest.json")
+    previous_manifest = {}
+    if os.path.exists(manifest_path):
+        with open(manifest_path, encoding="utf-8") as fh:
+            previous_manifest = json.load(fh)
     state = {}
     if os.path.exists(STATE_PATH):
         with open(STATE_PATH) as fh:
@@ -162,14 +179,11 @@ def main() -> int:
     files: list = []
     collect(token, FOLDER_ID, files)
     if not files:
-        # An empty listing almost always means the folder is not shared
-        # with the service account. Never overwrite a populated corpus
-        # with an empty one.
-        raise RuntimeError(
-            "no files visible in the shared folder; aborting to protect "
-            "the corpus (is the folder shared with the service account?)")
+        # Listing an inaccessible folder can look empty. Verify the folder
+        # itself before accepting an intentional deletion of the last file.
+        verify_folder_access(token, FOLDER_ID)
     manifest = {}
-    added = updated = skipped = 0
+    added = updated = skipped = failed = 0
     seen = set()
     for f in files:
         fid = f["id"]
@@ -184,10 +198,22 @@ def main() -> int:
                    or not os.path.exists(dest)
                    or os.path.getsize(dest) == 0)
         if changed:
-            res, raw = extract(token, f)
+            try:
+                res, raw = extract(token, f)
+            except requests.RequestException:
+                res, raw = "error-request", None
             if res != "ok":
                 skipped += 1
                 print(f"{res}: {f['name']}")
+                retryable = (res == "error-request" or res in
+                             {"error-http-408", "error-http-429"}
+                             or res.startswith("error-http-5"))
+                if retryable:
+                    failed += 1
+                    old = previous_manifest.get(fid)
+                    if old and os.path.exists(dest) and os.path.getsize(dest):
+                        manifest[fid] = dict(old, stale=True, sync_error=res)
+                        print(f"stale-retained: {f['name']}")
                 continue
             write_atomic(dest, raw)
             if fid in state:
@@ -208,12 +234,13 @@ def main() -> int:
                 os.remove(p)
             del state[fid]
             print(f"removed: {fid}")
-    write_atomic(os.path.join(CORPUS, "manifest.json"),
+    write_atomic(manifest_path,
                  json.dumps(manifest, ensure_ascii=False, indent=1).encode())
     write_atomic(STATE_PATH,
                  json.dumps(state, ensure_ascii=False, indent=1).encode())
-    print(f"PULL DONE files={len(manifest)} added={added} updated={updated} skipped={skipped}")
-    return 0
+    print(f"PULL DONE files={len(manifest)} added={added} updated={updated} "
+          f"skipped={skipped} failed={failed}")
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":

@@ -4,12 +4,20 @@ A **read-only MCP search server** that lets several AI assistants share one
 long-term memory: a Google Drive folder.
 
 Each AI writes new memories into the Drive folder through its own Drive
-access. This server only ever searches. It exposes a single MCP tool,
-`memory_search`, over streamable HTTP, protected by bearer tokens — or by
+access. This server exposes read-only `memory_search` and `memory_read`
+tools over streamable HTTP, protected by bearer tokens — or by
 its own built-in OAuth 2.0 authorization server for clients that cannot use
 static tokens (such as ChatGPT's MCP connector).
 
 > 日本語の説明は [README.ja.md](README.ja.md) にあります。
+
+Use `memory_search {query, k}` to find documents, then
+`memory_read {file_id, offset: 0, limit: 4000}` with a hit's `fileId` to read
+the indexed text. Follow `next_offset` until it is null to read the entire
+document. Offsets and limits count Unicode characters; the maximum page is
+8,000 characters. The response includes `modifiedTime`; restart pagination
+if it changes. Reads use the same authentication as search and accept only
+IDs in the current index, never filesystem paths.
 
 ## How it works
 
@@ -38,8 +46,13 @@ Google Drive folder ── pull.py (service account, every ~30 min)
   are persisted). The authorization endpoint is gated by a consent
   passphrase the owner sets — it fails closed while no passphrase file
   exists.
-- **Access log**: one TSV line per call (time, token label, tool, query
-  truncated to 200 chars, hit count). Secrets are never logged.
+- **Access log**: one TSV line per call (time, token label, tool, detail,
+  hit count). Query text is omitted by default. `RAG_SHARE_LOG_QUERIES=1`
+  enables plaintext query prefixes (200 characters), which may contain private
+  information. Credentials are not logged. Files use POSIX mode 0600; manage
+  directory ACLs on Windows. Rotation defaults to 1 MiB per file plus three
+  backups, controlled by `RAG_SHARE_LOG_MAX_BYTES` and `RAG_SHARE_LOG_BACKUPS`
+  (1..10). Retention is size-based, not a fixed number of days.
 
 ## Requirements
 
@@ -106,8 +119,11 @@ base URL) with `Authorization: Bearer <token>`.
 venv/bin/python pull.py     # prints "PULL DONE files=N ..."
 ```
 
-`pull.py` refuses to proceed when the folder listing comes back empty,
-so an unshared folder can never wipe a populated corpus. Run it on a
+When a listing is empty, `pull.py` verifies that the folder itself is accessible
+and not trashed before clearing the corpus. An inaccessible folder preserves
+existing memories; an accessible empty folder removes the last deleted memory.
+Retryable download failures retain the last good version for the next pull.
+Run it on a
 timer (see `systemd/`) or from cron. If a Google Doc/Sheet/Slide is in
 the folder it is exported as text/CSV; plain-text-like files are
 downloaded; anything else (and files over 5 MB) is skipped.
@@ -140,14 +156,24 @@ The server alone does not make an AI participate. Two prompts in
    and also give it to each AI (custom instructions, or at the start
    of a conversation).
 2. **Bootstrap prompt** ([`docs/BOOTSTRAP_PROMPT.md`](docs/BOOTSTRAP_PROMPT.md),
-   [日本語](docs/BOOTSTRAP_PROMPT.ja.md)): paste **once** to a new AI.
-   It makes the AI fetch the writing guide via `memory_search` and
-   retain the key points in whatever long-term memory mechanism it
-   has.
+   [日本語](docs/BOOTSTRAP_PROMPT.ja.md)): use for initial setup of a new AI.
+   The AI reads the complete guide and reports whether retention is conversation-only,
+   verified persistent settings, or awaiting user setup. Without persistence it
+   must be provided again. Before writing in a new conversation, recheck the
+   canonical policy version.
 
 Adapt the folder name in the templates to your own.
 
 ## Exposing the server
+
+Public OAuth requests have bounded bodies, registration counts, and shared
+per-route request budgets. See [OAuth operation](docs/OAUTH_OPERATIONS.md) for
+limits, proxy trust, and removing unused registrations.
+
+OAuth state is written to a private temporary file, flushed, then atomically
+replaced. Invalid existing JSON is an error rather than an empty store; restore
+the last known-good backup before retrying. Keep backups of the OAuth state
+private as well. Missing state files can still be initialized normally.
 
 The server itself is plain HTTP. Put a TLS tunnel or reverse proxy in
 front of it, for example:
@@ -217,6 +243,21 @@ docker-compose.yml   server + one-shot pull
 systemd/             example user units (server, pull oneshot, pull timer)
 rag-share.env.example
 ```
+
+## Development and CI
+
+Install `requirements.txt`, then run:
+
+```sh
+python -m unittest discover -s tests -v
+```
+
+GitHub Actions runs on pushes and pull requests: Linux with Python 3.11–3.14,
+and Windows with Python 3.14. It checks dependency consistency, syntax, the
+regression suite, and actual MCP SDK tool registration/dispatch and app creation.
+Tests use temporary data and deterministic embedding fixtures; no Drive keys,
+live account access, or embedding model download is needed. Model quality and
+public tunnel integration are outside this suite.
 
 ## License
 

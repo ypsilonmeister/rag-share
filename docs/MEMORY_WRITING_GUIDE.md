@@ -1,5 +1,10 @@
 # Writing guide for the shared memory
 
+Policy version: **1.1** / Updated: **2026-11-07**
+
+When rules change, update the version/date and synchronize the canonical Drive
+copy and translations.
+
 A prompt to give to each AI (ChatGPT, Gemini, Claude, …).
 Have it read this at the start of a conversation, or paste it into its
 custom instructions. Replace the folder name with your own shared
@@ -31,9 +36,12 @@ the same day. Existing files do not need to be renamed.)
 ```markdown
 ---
 title: <title>
+id: <unique record ID, e.g. a new UUID>
 date: YYYY-MM-DD
 author: <your AI name>
 tags: [<related topics>]
+status: active
+supersedes: []
 ---
 
 <body>
@@ -56,6 +64,16 @@ tags: [<related topics>]
    summary from a migration period) and an individual .md record
    disagrees with it, treat the newer .md record as correct (it is
    newer, and its author is clear).
+
+## Corrections and history
+
+For a correction, generate a new `id` and set `supersedes: ["original-id"]`.
+IDs are immutable and unique across files. `status` describes the record state
+(e.g. `active` or `retracted`). Search and reads include `superseded_by` links
+even when the correction falls outside the search's top-k. Read linked records
+with `memory_read` and check their dates. Old records remain searchable for
+historical questions; ranking is not changed to newest-first. Legacy records
+without IDs still work but cannot have automatic correction links.
 
 ## Never write
 
