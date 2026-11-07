@@ -14,6 +14,8 @@ import unittest
 from unittest.mock import patch
 import urllib.parse
 
+import numpy  # Load native modules before the temporary sys.modules patch.
+
 
 class RegistrationOnlyMCPServer:
     def __init__(self, *args, **kwargs):
